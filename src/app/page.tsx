@@ -1,101 +1,213 @@
-import Image from "next/image";
+'use client';
+
+import { useState, useCallback } from 'react';
 
 export default function Home() {
-  return (
-    <div className="grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20 font-[family-name:var(--font-geist-sans)]">
-      <main className="flex flex-col gap-8 row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="https://nextjs.org/icons/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="list-inside list-decimal text-sm text-center sm:text-left font-[family-name:var(--font-geist-mono)]">
-          <li className="mb-2">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] px-1 py-0.5 rounded font-semibold">
-              src/app/page.tsx
-            </code>
-            .
-          </li>
-          <li>Save and see your changes instantly.</li>
-        </ol>
+  const [originalImage, setOriginalImage] = useState<string | null>(null);
+  const [processedImage, setProcessedImage] = useState<string | null>(null);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [fileName, setFileName] = useState<string>('');
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="https://nextjs.org/icons/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:min-w-44"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
+  const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // 验证文件类型
+    if (!file.type.startsWith('image/')) {
+      setError('请上传图片文件 (JPG/PNG)');
+      return;
+    }
+
+    // 验证文件大小 (5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      setError('图片大小不能超过 5MB');
+      return;
+    }
+
+    setFileName(file.name);
+    setError(null);
+    setProcessedImage(null);
+
+    // 显示原图预览
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      setOriginalImage(event.target?.result as string);
+    };
+    reader.readAsDataURL(file);
+
+    // 自动处理
+    processImage(file);
+  }, []);
+
+  const processImage = async (file: File) => {
+    setIsProcessing(true);
+    setError(null);
+
+    try {
+      const formData = new FormData();
+      formData.append('image', file);
+
+      const response = await fetch('/api/remove-bg', {
+        method: 'POST',
+        body: formData,
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || '处理失败');
+      }
+
+      setProcessedImage(data.image);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '处理失败，请重试');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    const file = e.dataTransfer.files[0];
+    if (file) {
+      const input = document.getElementById('file-input') as HTMLInputElement;
+      const dataTransfer = new DataTransfer();
+      dataTransfer.items.add(file);
+      input.files = dataTransfer.files;
+      handleFileChange({ target: input } as React.ChangeEvent<HTMLInputElement>);
+    }
+  }, [handleFileChange]);
+
+  const handleDownload = () => {
+    if (!processedImage) return;
+    const link = document.createElement('a');
+    link.href = processedImage;
+    link.download = `removed-bg-${fileName || 'image'}.png`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  return (
+    <main className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 py-12 px-4">
+      <div className="max-w-6xl mx-auto">
+        {/* Header */}
+        <div className="text-center mb-12">
+          <h1 className="text-4xl md:text-5xl font-bold text-gray-900 mb-4">
+            Image Background Remover
+          </h1>
+          <p className="text-lg text-gray-600">
+            AI 智能抠图，3秒去除背景
+          </p>
         </div>
-      </main>
-      <footer className="row-start-3 flex gap-6 flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="https://nextjs.org/icons/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="https://nextjs.org/icons/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="https://nextjs.org/icons/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
-    </div>
+
+        {/* Upload Area */}
+        {!originalImage && (
+          <div
+            onDrop={handleDrop}
+            onDragOver={(e) => e.preventDefault()}
+            className="border-4 border-dashed border-indigo-300 rounded-3xl p-16 text-center bg-white shadow-lg hover:border-indigo-500 transition-colors cursor-pointer"
+            onClick={() => document.getElementById('file-input')?.click()}
+          >
+            <div className="text-6xl mb-4">📤</div>
+            <p className="text-xl text-gray-700 mb-2">
+              拖拽图片到这里，或点击上传
+            </p>
+            <p className="text-sm text-gray-500">
+              支持 JPG、PNG 格式，最大 5MB
+            </p>
+            <input
+              id="file-input"
+              type="file"
+              accept="image/*"
+              onChange={handleFileChange}
+              className="hidden"
+            />
+          </div>
+        )}
+
+        {/* Error Message */}
+        {error && (
+          <div className="mt-6 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-center">
+            {error}
+          </div>
+        )}
+
+        {/* Processing */}
+        {isProcessing && (
+          <div className="mt-8 text-center">
+            <div className="inline-block animate-spin rounded-full h-12 w-12 border-4 border-indigo-500 border-t-transparent"></div>
+            <p className="mt-4 text-gray-600">AI 正在处理中...</p>
+          </div>
+        )}
+
+        {/* Result Comparison */}
+        {originalImage && processedImage && !isProcessing && (
+          <div className="mt-8">
+            <div className="grid md:grid-cols-2 gap-8">
+              {/* Original */}
+              <div className="bg-white rounded-2xl shadow-lg p-6">
+                <h3 className="text-lg font-semibold text-gray-700 mb-4 text-center">
+                  原图
+                </h3>
+                <div className="relative aspect-square bg-gray-100 rounded-lg overflow-hidden">
+                  <img
+                    src={originalImage}
+                    alt="Original"
+                    className="w-full h-full object-contain"
+                  />
+                </div>
+              </div>
+
+              {/* Processed */}
+              <div className="bg-white rounded-2xl shadow-lg p-6">
+                <h3 className="text-lg font-semibold text-gray-700 mb-4 text-center">
+                  去背景后
+                </h3>
+                <div className="relative aspect-square bg-gray-100 rounded-lg overflow-hidden">
+                  <img
+                    src={processedImage}
+                    alt="Processed"
+                    className="w-full h-full object-contain"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Download Button */}
+            <div className="mt-8 text-center">
+              <button
+                onClick={handleDownload}
+                className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-4 px-8 rounded-xl shadow-lg transition-colors text-lg"
+              >
+                ⬇️ 下载 PNG 图片
+              </button>
+            </div>
+
+            {/* Reset Button */}
+            <div className="mt-4 text-center">
+              <button
+                onClick={() => {
+                  setOriginalImage(null);
+                  setProcessedImage(null);
+                  setError(null);
+                  setFileName('');
+                }}
+                className="text-gray-500 hover:text-gray-700 underline"
+              >
+                处理新图片
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Footer */}
+        <div className="mt-16 text-center text-sm text-gray-500">
+          <p>纯内存处理，图片不会保存到服务器</p>
+          <p className="mt-2">Powered by Remove.bg API</p>
+        </div>
+      </div>
+    </main>
   );
 }
