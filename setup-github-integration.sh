@@ -1,0 +1,35 @@
+#!/bin/bash
+
+# Cloudflare Pages GitHub 连接配置
+# 项目已创建，现在需要配置 GitHub 集成
+
+CF_API_TOKEN="cfut_5YMspl70b8gMtPBcmR497rGX17BOCoybE20LWNzFdebfdfb7"
+CF_ACCOUNT_ID="22e7ed16c414a66c0ae19d80fc16373b"
+PROJECT_NAME="image-bg-remover"
+
+echo "🎉 Cloudflare Pages 项目已创建！"
+echo ""
+echo "📋 项目信息："
+echo "   项目名称: $PROJECT_NAME"
+echo "   预览地址: https://$PROJECT_NAME-39l.pages.dev/"
+echo ""
+echo "🔗 下一步：连接 GitHub 仓库"
+echo ""
+echo "请执行以下操作："
+echo ""
+echo "1. 访问 Cloudflare Dashboard:"
+echo "   https://dash.cloudflare.com/$CF_ACCOUNT_ID/pages/$PROJECT_NAME"
+echo ""
+echo "2. 点击 'Continue with GitHub' 或 'Connect Git repository'"
+echo ""
+echo "3. 授权 GitHub 并选择你的 image-bg-remover 仓库"
+echo ""
+echo "4. 构建设置："
+echo "   Framework preset: Next.js"
+echo "   Build command: npm run build"
+echo "   Build output directory: dist"
+echo ""
+echo "5. 点击 'Save and Deploy'"
+echo ""
+echo "✅ 完成！以后每次 push 到 main 分支会自动部署"
+echo ""
