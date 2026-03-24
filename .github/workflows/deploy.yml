@@ -37,3 +37,4 @@ jobs:
           projectName: image-bg-remover
           directory: dist
           gitHubToken: ${{ secrets.GITHUB_TOKEN }}
+          wranglerVersion: '3'
