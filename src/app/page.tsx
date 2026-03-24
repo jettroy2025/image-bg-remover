@@ -1,12 +1,6 @@
 'use client';
 
-import { useState, useCallback, useEffect } from 'react';
-
-// 检测是否在微信内置浏览器
-const isWechat = () => {
-  if (typeof window === 'undefined') return false;
-  return /MicroMessenger/i.test(window.navigator.userAgent);
-};
+import { useState, useCallback } from 'react';
 
 export default function Home() {
   const [originalImage, setOriginalImage] = useState<string | null>(null);
@@ -14,11 +8,6 @@ export default function Home() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [fileName, setFileName] = useState<string>('');
-  const [isWechatBrowser, setIsWechatBrowser] = useState(false);
-
-  useEffect(() => {
-    setIsWechatBrowser(isWechat());
-  }, []);
 
   const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -188,23 +177,12 @@ export default function Home() {
 
             {/* Download Button */}
             <div className="mt-8 text-center">
-              {!isWechatBrowser ? (
-                <button
-                  onClick={handleDownload}
-                  className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-4 px-8 rounded-xl shadow-lg transition-colors text-lg"
-                >
-                  ⬇️ 下载 PNG 图片
-                </button>
-              ) : (
-                <div className="bg-orange-50 border border-orange-200 rounded-xl p-4">
-                  <p className="text-orange-700 font-medium">
-                    📱 微信用户请长按右侧图片 → 保存图片
-                  </p>
-                  <p className="text-orange-600 text-sm mt-1">
-                    微信内无法直接下载，请长按「去背景后」的图片保存
-                  </p>
-                </div>
-              )}
+              <button
+                onClick={handleDownload}
+                className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-4 px-8 rounded-xl shadow-lg transition-colors text-lg"
+              >
+                ⬇️ 下载 PNG 图片
+              </button>
             </div>
 
             {/* Reset Button */}
