@@ -1,6 +1,32 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
+
+// 用户类型定义
+interface User {
+  id: string;
+  name: string;
+  email: string;
+  image?: string;
+}
+
+// 全局 window 类型扩展
+declare global {
+  interface Window {
+    google?: {
+      accounts: {
+        id: {
+          initialize: (config: { client_id: string; callback: (response: GoogleCredentialResponse) => void }) => void;
+          renderButton: (element: HTMLElement | null, options: { theme: string; size: string }) => void;
+        };
+      };
+    };
+  }
+
+  interface GoogleCredentialResponse {
+    credential: string;
+  }
+}
 
 export default function Home() {
   const [originalImage, setOriginalImage] = useState<string | null>(null);
@@ -8,6 +34,67 @@ export default function Home() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [fileName, setFileName] = useState<string>('');
+  const [user, setUser] = useState<User | null>(null);
+
+  // 处理 Google 登录回调
+  const handleGoogleCallback = useCallback((response: GoogleCredentialResponse) => {
+    // 解码 JWT token
+    const token = response.credential;
+    const payload = JSON.parse(atob(token.split('.')[1]));
+    
+    const userData: User = {
+      id: payload.sub,
+      name: payload.name,
+      email: payload.email,
+      image: payload.picture,
+    };
+    
+    setUser(userData);
+    localStorage.setItem('user', JSON.stringify(userData));
+    localStorage.setItem('token', token);
+  }, []);
+
+  // 退出登录
+  const handleLogout = useCallback(() => {
+    setUser(null);
+    localStorage.removeItem('user');
+    localStorage.removeItem('token');
+    // 刷新页面清除 Google 登录状态
+    window.location.reload();
+  }, []);
+
+  // 加载 Google Identity Services
+  useEffect(() => {
+    // 检查本地存储的登录状态
+    const savedUser = localStorage.getItem('user');
+    if (savedUser) {
+      setUser(JSON.parse(savedUser));
+    }
+
+    // 加载 Google Identity Services 脚本
+    const script = document.createElement('script');
+    script.src = 'https://accounts.google.com/gsi/client';
+    script.async = true;
+    script.defer = true;
+    script.onload = () => {
+      // 脚本加载完成后初始化 Google 登录按钮
+      if (window.google && !savedUser) {
+        window.google.accounts.id.initialize({
+          client_id: '1060110837421-360r8rj0lmu5c5vo9jsfu8bs5i2njmv6.apps.googleusercontent.com',
+          callback: handleGoogleCallback,
+        });
+        window.google.accounts.id.renderButton(
+          document.getElementById('google-signin-button'),
+          { theme: 'outline', size: 'large' }
+        );
+      }
+    };
+    document.body.appendChild(script);
+
+    return () => {
+      document.body.removeChild(script);
+    };
+  }, [handleGoogleCallback]);
 
   const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -94,6 +181,30 @@ export default function Home() {
       <div className="max-w-6xl mx-auto">
         {/* Header */}
         <div className="text-center mb-12">
+          <div className="flex justify-end mb-4">
+            {user ? (
+              <div className="flex items-center gap-3">
+                {user.image && (
+                  <img 
+                    src={user.image} 
+                    alt="头像" 
+                    className="w-8 h-8 rounded-full"
+                  />
+                )}
+                <span className="text-sm text-gray-700 hidden sm:inline">
+                  {user.name}
+                </span>
+                <button 
+                  onClick={handleLogout}
+                  className="px-4 py-2 bg-red-500 hover:bg-red-600 text-white text-sm rounded transition-colors"
+                >
+                  退出
+                </button>
+              </div>
+            ) : (
+              <div id="google-signin-button"></div>
+            )}
+          </div>
           <h1 className="text-4xl md:text-5xl font-bold text-gray-900 mb-4">
             Image Background Remover
           </h1>
