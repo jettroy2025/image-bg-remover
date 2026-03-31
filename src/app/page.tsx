@@ -36,13 +36,18 @@ export default function Home() {
   const [fileName, setFileName] = useState<string>('');
   const [user, setUser] = useState<User | null>(null);
   const [remainingCredits, setRemainingCredits] = useState(ANONYMOUS_LIMIT.totalCredits);
+  const [isClient, setIsClient] = useState(false);
+
+  // 标记客户端渲染完成
+  useEffect(() => {
+    setIsClient(true);
+  }, []);
 
   // 更新剩余额度显示
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      setRemainingCredits(getRemainingCredits(user));
-    }
-  }, [user]);
+    if (!isClient) return;
+    setRemainingCredits(getRemainingCredits(user));
+  }, [user, isClient]);
 
   // 处理 Google 登录回调
   const handleGoogleCallback = useCallback((response: GoogleCredentialResponse) => {
@@ -75,11 +80,15 @@ export default function Home() {
 
   // 加载 Google Identity Services
   useEffect(() => {
-    if (typeof window === 'undefined') return;
+    if (!isClient) return;
     
     const savedUser = localStorage.getItem('user');
     if (savedUser) {
-      setUser(JSON.parse(savedUser));
+      try {
+        setUser(JSON.parse(savedUser));
+      } catch (e) {
+        console.error('Failed to parse user:', e);
+      }
     }
 
     const script = document.createElement('script');
@@ -103,9 +112,11 @@ export default function Home() {
     return () => {
       document.body.removeChild(script);
     };
-  }, [handleGoogleCallback]);
+  }, [handleGoogleCallback, isClient]);
 
   const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!isClient) return;
+    
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -136,9 +147,11 @@ export default function Home() {
     reader.readAsDataURL(file);
 
     processImage(file);
-  }, [user]);
+  }, [user, isClient]);
 
   const processImage = async (file: File) => {
+    if (!isClient) return;
+    
     setIsProcessing(true);
     setError(null);
 
@@ -203,6 +216,20 @@ export default function Home() {
     const planKey = user.plan.toUpperCase() as keyof typeof PLANS;
     return PLANS[planKey]?.name || 'Free';
   };
+
+  // 客户端渲染前显示加载状态
+  if (!isClient) {
+    return (
+      <main className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 py-12 px-4">
+        <div className="max-w-6xl mx-auto flex items-center justify-center min-h-[50vh]">
+          <div className="text-center">
+            <div className="inline-block animate-spin rounded-full h-12 w-12 border-4 border-indigo-500 border-t-transparent mb-4"></div>
+            <p className="text-gray-600">加载中...</p>
+          </div>
+        </div>
+      </main>
+    );
+  }
 
   return (
     <main className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 py-12 px-4">
