@@ -39,7 +39,9 @@ export default function Home() {
 
   // 更新剩余额度显示
   useEffect(() => {
-    setRemainingCredits(getRemainingCredits(user));
+    if (typeof window !== 'undefined') {
+      setRemainingCredits(getRemainingCredits(user));
+    }
   }, [user]);
 
   // 处理 Google 登录回调
@@ -73,6 +75,8 @@ export default function Home() {
 
   // 加载 Google Identity Services
   useEffect(() => {
+    if (typeof window === 'undefined') return;
+    
     const savedUser = localStorage.getItem('user');
     if (savedUser) {
       setUser(JSON.parse(savedUser));

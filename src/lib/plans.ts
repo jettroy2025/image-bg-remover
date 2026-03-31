@@ -79,6 +79,8 @@ export interface User {
 
 // 检查用户是否有足够额度
 export function hasEnoughCredits(user: User | null): boolean {
+  if (typeof window === 'undefined') return true; // SSR 时默认允许
+  
   if (!user) {
     // 未登录用户检查本地存储的使用次数
     const anonymousUsed = parseInt(localStorage.getItem('anonymousCreditsUsed') || '0');
@@ -91,6 +93,8 @@ export function hasEnoughCredits(user: User | null): boolean {
 
 // 获取剩余额度
 export function getRemainingCredits(user: User | null): number {
+  if (typeof window === 'undefined') return ANONYMOUS_LIMIT.totalCredits; // SSR 时返回默认值
+  
   if (!user) {
     const anonymousUsed = parseInt(localStorage.getItem('anonymousCreditsUsed') || '0');
     return Math.max(0, ANONYMOUS_LIMIT.totalCredits - anonymousUsed);
