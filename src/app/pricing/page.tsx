@@ -6,17 +6,23 @@ import { PLANS, PlanId, User, getRemainingCredits, ANONYMOUS_LIMIT } from '@/lib
 
 export default function PricingPage() {
   const [user, setUser] = useState<User | null>(null);
+  const [isClient, setIsClient] = useState(false);
   
   useEffect(() => {
-    if (typeof window !== 'undefined') {
+    setIsClient(true);
+    try {
       const savedUser = localStorage.getItem('user');
       if (savedUser) {
         setUser(JSON.parse(savedUser));
       }
+    } catch (e) {
+      console.error('Failed to load user:', e);
     }
   }, []);
 
   const handleSelectPlan = (planId: PlanId) => {
+    if (!isClient) return;
+    
     if (planId === 'FREE') {
       window.location.href = '/';
       return;
@@ -25,8 +31,26 @@ export default function PricingPage() {
     alert(`即将跳转到 PayPal 支付 - ${PLANS[planId].name} 套餐`);
   };
 
-  const currentPlanId = user?.plan || null;
-  const remainingCredits = user ? getRemainingCredits(user) : ANONYMOUS_LIMIT.totalCredits;
+  // 安全地获取当前套餐名称
+  const getCurrentPlanName = () => {
+    if (!user?.plan) return 'Free';
+    const planKey = user.plan.toUpperCase() as PlanId;
+    return PLANS[planKey]?.name || 'Free';
+  };
+
+  const remainingCredits = isClient 
+    ? (user ? getRemainingCredits(user) : ANONYMOUS_LIMIT.totalCredits)
+    : ANONYMOUS_LIMIT.totalCredits;
+
+  if (!isClient) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 py-12 px-4">
+        <div className="max-w-6xl mx-auto text-center">
+          <p className="text-gray-600">加载中...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 py-12 px-4">
@@ -45,7 +69,7 @@ export default function PricingPage() {
             <div className="mt-6 inline-block bg-white rounded-lg px-6 py-3 shadow-md">
               <span className="text-gray-600">当前套餐：</span>
               <span className="font-semibold text-indigo-600">
-                {PLANS[currentPlanId as PlanId]?.name || 'Free'}
+                {getCurrentPlanName()}
               </span>
               <span className="mx-2 text-gray-400">|</span>
               <span className="text-gray-600">剩余额度：</span>
@@ -57,7 +81,7 @@ export default function PricingPage() {
         {/* Pricing Cards */}
         <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
           {Object.entries(PLANS).map(([planId, plan]) => {
-            const isCurrentPlan = currentPlanId === planId;
+            const isCurrentPlan = user?.plan?.toUpperCase() === planId;
             const isFree = plan.price === 0;
 
             return (
