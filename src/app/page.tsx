@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { 
   User, 
@@ -9,24 +9,6 @@ import {
   ANONYMOUS_LIMIT,
   PLANS 
 } from '@/lib/plans';
-
-// 全局 window 类型扩展
-declare global {
-  interface Window {
-    google?: {
-      accounts: {
-        id: {
-          initialize: (config: { client_id: string; callback: (response: GoogleCredentialResponse) => void }) => void;
-          renderButton: (element: HTMLElement | null, options: { theme: string; size: string }) => void;
-        };
-      };
-    };
-  }
-
-  interface GoogleCredentialResponse {
-    credential: string;
-  }
-}
 
 export default function Home() {
   const [originalImage, setOriginalImage] = useState<string | null>(null);
@@ -38,89 +20,26 @@ export default function Home() {
   const [remainingCredits, setRemainingCredits] = useState(ANONYMOUS_LIMIT.totalCredits);
   const [isClient, setIsClient] = useState(false);
 
-  // 标记客户端渲染完成
   useEffect(() => {
     setIsClient(true);
-  }, []);
-
-  // 更新剩余额度显示
-  useEffect(() => {
-    if (!isClient) return;
-    setRemainingCredits(getRemainingCredits(user));
-  }, [user, isClient]);
-
-  // 处理 Google 登录回调
-  const handleGoogleCallback = useCallback((response: GoogleCredentialResponse) => {
-    const token = response.credential;
-    const payload = JSON.parse(atob(token.split('.')[1]));
-    
-    const userData: User = {
-      id: payload.sub,
-      name: payload.name,
-      email: payload.email,
-      image: payload.picture,
-      plan: 'FREE',
-      creditsUsed: 0,
-      creditsResetAt: new Date().toISOString(),
-    };
-    
-    setUser(userData);
-    localStorage.setItem('user', JSON.stringify(userData));
-    localStorage.setItem('token', token);
-  }, []);
-
-  // 退出登录
-  const handleLogout = useCallback(() => {
-    setUser(null);
-    localStorage.removeItem('user');
-    localStorage.removeItem('token');
-    localStorage.removeItem('anonymousCreditsUsed');
-    window.location.reload();
-  }, []);
-
-  // 加载 Google Identity Services
-  useEffect(() => {
-    if (!isClient) return;
-    
-    const savedUser = localStorage.getItem('user');
-    if (savedUser) {
-      try {
+    // 加载用户数据
+    try {
+      const savedUser = localStorage.getItem('user');
+      if (savedUser) {
         setUser(JSON.parse(savedUser));
-      } catch (e) {
-        console.error('Failed to parse user:', e);
       }
+      // 更新额度显示
+      const credits = getRemainingCredits(savedUser ? JSON.parse(savedUser) : null);
+      setRemainingCredits(credits);
+    } catch (e) {
+      console.error('Error loading user:', e);
     }
+  }, []);
 
-    const script = document.createElement('script');
-    script.src = 'https://accounts.google.com/gsi/client';
-    script.async = true;
-    script.defer = true;
-    script.onload = () => {
-      if (window.google && !savedUser) {
-        window.google.accounts.id.initialize({
-          client_id: '1060110837421-360r8rj0lmu5c5vo9jsfu8bs5i2njmv6.apps.googleusercontent.com',
-          callback: handleGoogleCallback,
-        });
-        window.google.accounts.id.renderButton(
-          document.getElementById('google-signin-button'),
-          { theme: 'outline', size: 'large' }
-        );
-      }
-    };
-    document.body.appendChild(script);
-
-    return () => {
-      document.body.removeChild(script);
-    };
-  }, [handleGoogleCallback, isClient]);
-
-  const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!isClient) return;
-    
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // 检查额度
     if (!hasEnoughCredits(user)) {
       setError('额度已用完，请升级套餐');
       return;
@@ -147,11 +66,9 @@ export default function Home() {
     reader.readAsDataURL(file);
 
     processImage(file);
-  }, [user, isClient]);
+  };
 
   const processImage = async (file: File) => {
-    if (!isClient) return;
-    
     setIsProcessing(true);
     setError(null);
 
@@ -177,8 +94,9 @@ export default function Home() {
         const anonymousUsed = parseInt(localStorage.getItem('anonymousCreditsUsed') || '0');
         localStorage.setItem('anonymousCreditsUsed', String(anonymousUsed + 1));
       } else {
-        user.creditsUsed += 1;
-        localStorage.setItem('user', JSON.stringify(user));
+        const updatedUser = { ...user, creditsUsed: user.creditsUsed + 1 };
+        localStorage.setItem('user', JSON.stringify(updatedUser));
+        setUser(updatedUser);
       }
       setRemainingCredits(getRemainingCredits(user));
     } catch (err) {
@@ -188,7 +106,7 @@ export default function Home() {
     }
   };
 
-  const handleDrop = useCallback((e: React.DragEvent) => {
+  const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     const file = e.dataTransfer.files[0];
     if (file) {
@@ -198,7 +116,7 @@ export default function Home() {
       input.files = dataTransfer.files;
       handleFileChange({ target: input } as React.ChangeEvent<HTMLInputElement>);
     }
-  }, [handleFileChange]);
+  };
 
   const handleDownload = () => {
     if (!processedImage) return;
@@ -210,14 +128,12 @@ export default function Home() {
     document.body.removeChild(link);
   };
 
-  // 获取当前套餐名称
   const getPlanName = () => {
     if (!user) return '访客';
     const planKey = user.plan.toUpperCase() as keyof typeof PLANS;
     return PLANS[planKey]?.name || 'Free';
   };
 
-  // 客户端渲染前显示加载状态
   if (!isClient) {
     return (
       <main className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 py-12 px-4">
@@ -260,28 +176,6 @@ export default function Home() {
               >
                 升级套餐
               </Link>
-              {user ? (
-                <div className="flex items-center gap-3">
-                  {user.image && (
-                    <img 
-                      src={user.image} 
-                      alt="头像" 
-                      className="w-8 h-8 rounded-full"
-                    />
-                  )}
-                  <span className="text-sm text-gray-700 hidden sm:inline">
-                    {user.name}
-                  </span>
-                  <button 
-                    onClick={handleLogout}
-                    className="px-4 py-2 bg-red-500 hover:bg-red-600 text-white text-sm rounded transition-colors"
-                  >
-                    退出
-                  </button>
-                </div>
-              ) : (
-                <div id="google-signin-button"></div>
-              )}
             </div>
           </div>
 
