@@ -1,14 +1,14 @@
 'use client';
 
 import { useState, useCallback, useEffect } from 'react';
-
-// 用户类型定义
-interface User {
-  id: string;
-  name: string;
-  email: string;
-  image?: string;
-}
+import Link from 'next/link';
+import { 
+  User, 
+  hasEnoughCredits, 
+  getRemainingCredits, 
+  ANONYMOUS_LIMIT,
+  PLANS 
+} from '@/lib/plans';
 
 // 全局 window 类型扩展
 declare global {
@@ -35,10 +35,15 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [fileName, setFileName] = useState<string>('');
   const [user, setUser] = useState<User | null>(null);
+  const [remainingCredits, setRemainingCredits] = useState(ANONYMOUS_LIMIT.totalCredits);
+
+  // 更新剩余额度显示
+  useEffect(() => {
+    setRemainingCredits(getRemainingCredits(user));
+  }, [user]);
 
   // 处理 Google 登录回调
   const handleGoogleCallback = useCallback((response: GoogleCredentialResponse) => {
-    // 解码 JWT token
     const token = response.credential;
     const payload = JSON.parse(atob(token.split('.')[1]));
     
@@ -47,6 +52,9 @@ export default function Home() {
       name: payload.name,
       email: payload.email,
       image: payload.picture,
+      plan: 'FREE',
+      creditsUsed: 0,
+      creditsResetAt: new Date().toISOString(),
     };
     
     setUser(userData);
@@ -59,25 +67,22 @@ export default function Home() {
     setUser(null);
     localStorage.removeItem('user');
     localStorage.removeItem('token');
-    // 刷新页面清除 Google 登录状态
+    localStorage.removeItem('anonymousCreditsUsed');
     window.location.reload();
   }, []);
 
   // 加载 Google Identity Services
   useEffect(() => {
-    // 检查本地存储的登录状态
     const savedUser = localStorage.getItem('user');
     if (savedUser) {
       setUser(JSON.parse(savedUser));
     }
 
-    // 加载 Google Identity Services 脚本
     const script = document.createElement('script');
     script.src = 'https://accounts.google.com/gsi/client';
     script.async = true;
     script.defer = true;
     script.onload = () => {
-      // 脚本加载完成后初始化 Google 登录按钮
       if (window.google && !savedUser) {
         window.google.accounts.id.initialize({
           client_id: '1060110837421-360r8rj0lmu5c5vo9jsfu8bs5i2njmv6.apps.googleusercontent.com',
@@ -100,13 +105,17 @@ export default function Home() {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // 验证文件类型
+    // 检查额度
+    if (!hasEnoughCredits(user)) {
+      setError('额度已用完，请升级套餐');
+      return;
+    }
+
     if (!file.type.startsWith('image/')) {
       setError('请上传图片文件 (JPG/PNG)');
       return;
     }
 
-    // 验证文件大小 (5MB)
     if (file.size > 5 * 1024 * 1024) {
       setError('图片大小不能超过 5MB');
       return;
@@ -116,16 +125,14 @@ export default function Home() {
     setError(null);
     setProcessedImage(null);
 
-    // 显示原图预览
     const reader = new FileReader();
     reader.onload = (event) => {
       setOriginalImage(event.target?.result as string);
     };
     reader.readAsDataURL(file);
 
-    // 自动处理
     processImage(file);
-  }, []);
+  }, [user]);
 
   const processImage = async (file: File) => {
     setIsProcessing(true);
@@ -147,6 +154,16 @@ export default function Home() {
       }
 
       setProcessedImage(data.image);
+      
+      // 扣减额度
+      if (!user) {
+        const anonymousUsed = parseInt(localStorage.getItem('anonymousCreditsUsed') || '0');
+        localStorage.setItem('anonymousCreditsUsed', String(anonymousUsed + 1));
+      } else {
+        user.creditsUsed += 1;
+        localStorage.setItem('user', JSON.stringify(user));
+      }
+      setRemainingCredits(getRemainingCredits(user));
     } catch (err) {
       setError(err instanceof Error ? err.message : '处理失败，请重试');
     } finally {
@@ -176,35 +193,66 @@ export default function Home() {
     document.body.removeChild(link);
   };
 
+  // 获取当前套餐名称
+  const getPlanName = () => {
+    if (!user) return '访客';
+    return PLANS[user.plan]?.name || 'Free';
+  };
+
   return (
     <main className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 py-12 px-4">
       <div className="max-w-6xl mx-auto">
         {/* Header */}
         <div className="text-center mb-12">
-          <div className="flex justify-end mb-4">
-            {user ? (
-              <div className="flex items-center gap-3">
-                {user.image && (
-                  <img 
-                    src={user.image} 
-                    alt="头像" 
-                    className="w-8 h-8 rounded-full"
-                  />
-                )}
-                <span className="text-sm text-gray-700 hidden sm:inline">
-                  {user.name}
-                </span>
-                <button 
-                  onClick={handleLogout}
-                  className="px-4 py-2 bg-red-500 hover:bg-red-600 text-white text-sm rounded transition-colors"
-                >
-                  退出
-                </button>
+          {/* Top Bar */}
+          <div className="flex justify-between items-center mb-4">
+            {/* Credits Display */}
+            <div className="flex items-center gap-4">
+              <div className="bg-white rounded-lg px-4 py-2 shadow-md text-sm">
+                <span className="text-gray-600">套餐：</span>
+                <span className="font-semibold text-indigo-600">{getPlanName()}</span>
               </div>
-            ) : (
-              <div id="google-signin-button"></div>
-            )}
+              <div className="bg-white rounded-lg px-4 py-2 shadow-md text-sm">
+                <span className="text-gray-600">剩余额度：</span>
+                <span className={`font-semibold ${remainingCredits === 0 ? 'text-red-500' : 'text-indigo-600'}`}>
+                  {remainingCredits} 张
+                </span>
+              </div>
+            </div>
+
+            {/* Auth Buttons */}
+            <div className="flex items-center gap-3">
+              <Link 
+                href="/pricing"
+                className="px-4 py-2 bg-indigo-100 text-indigo-700 rounded-lg hover:bg-indigo-200 transition-colors text-sm font-medium"
+              >
+                升级套餐
+              </Link>
+              {user ? (
+                <div className="flex items-center gap-3">
+                  {user.image && (
+                    <img 
+                      src={user.image} 
+                      alt="头像" 
+                      className="w-8 h-8 rounded-full"
+                    />
+                  )}
+                  <span className="text-sm text-gray-700 hidden sm:inline">
+                    {user.name}
+                  </span>
+                  <button 
+                    onClick={handleLogout}
+                    className="px-4 py-2 bg-red-500 hover:bg-red-600 text-white text-sm rounded transition-colors"
+                  >
+                    退出
+                  </button>
+                </div>
+              ) : (
+                <div id="google-signin-button"></div>
+              )}
+            </div>
           </div>
+
           <h1 className="text-4xl md:text-5xl font-bold text-gray-900 mb-4">
             Image Background Remover
           </h1>
@@ -218,15 +266,32 @@ export default function Home() {
           <div
             onDrop={handleDrop}
             onDragOver={(e) => e.preventDefault()}
-            className="border-4 border-dashed border-indigo-300 rounded-3xl p-16 text-center bg-white shadow-lg hover:border-indigo-500 transition-colors cursor-pointer"
-            onClick={() => document.getElementById('file-input')?.click()}
+            className={`
+              border-4 border-dashed rounded-3xl p-16 text-center bg-white shadow-lg transition-colors cursor-pointer
+              ${remainingCredits === 0 
+                ? 'border-red-300 hover:border-red-500' 
+                : 'border-indigo-300 hover:border-indigo-500'
+              }
+            `}
+            onClick={() => {
+              if (remainingCredits === 0) {
+                window.location.href = '/pricing';
+              } else {
+                document.getElementById('file-input')?.click();
+              }
+            }}
           >
-            <div className="text-6xl mb-4">📤</div>
+            <div className="text-6xl mb-4">
+              {remainingCredits === 0 ? '🔒' : '📤'}
+            </div>
             <p className="text-xl text-gray-700 mb-2">
-              拖拽图片到这里，或点击上传
+              {remainingCredits === 0 ? '额度已用完，点击升级套餐' : '拖拽图片到这里，或点击上传'}
             </p>
             <p className="text-sm text-gray-500">
-              支持 JPG、PNG 格式，最大 5MB
+              {remainingCredits === 0 
+                ? '升级后可继续使用' 
+                : `支持 JPG、PNG 格式，最大 5MB（剩余 ${remainingCredits} 张）`
+              }
             </p>
             <input
               id="file-input"
@@ -234,6 +299,7 @@ export default function Home() {
               accept="image/*"
               onChange={handleFileChange}
               className="hidden"
+              disabled={remainingCredits === 0}
             />
           </div>
         )}
@@ -242,6 +308,16 @@ export default function Home() {
         {error && (
           <div className="mt-6 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-center">
             {error}
+            {error.includes('额度') && (
+              <div className="mt-2">
+                <Link 
+                  href="/pricing"
+                  className="inline-block px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
+                >
+                  查看套餐
+                </Link>
+              </div>
+            )}
           </div>
         )}
 
