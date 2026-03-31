@@ -200,7 +200,8 @@ export default function Home() {
   // 获取当前套餐名称
   const getPlanName = () => {
     if (!user) return '访客';
-    return PLANS[user.plan]?.name || 'Free';
+    const planKey = user.plan.toUpperCase() as keyof typeof PLANS;
+    return PLANS[planKey]?.name || 'Free';
   };
 
   return (
