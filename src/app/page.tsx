@@ -1,14 +1,10 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
-import { 
-  User, 
-  hasEnoughCredits, 
-  getRemainingCredits, 
-  ANONYMOUS_LIMIT,
-  PLANS 
-} from '@/lib/plans';
+
+// 简化的额度管理
+const ANONYMOUS_LIMIT = 3;
 
 export default function Home() {
   const [originalImage, setOriginalImage] = useState<string | null>(null);
@@ -16,31 +12,42 @@ export default function Home() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [fileName, setFileName] = useState<string>('');
-  const [user, setUser] = useState<User | null>(null);
-  const [remainingCredits, setRemainingCredits] = useState(ANONYMOUS_LIMIT.totalCredits);
-  const [isClient, setIsClient] = useState(false);
+  const [remainingCredits, setRemainingCredits] = useState(ANONYMOUS_LIMIT);
+  const [mounted, setMounted] = useState(false);
 
-  useEffect(() => {
-    setIsClient(true);
-    // 加载用户数据
+  // 安全的 localStorage 访问
+  const getStorageItem = useCallback((key: string): string | null => {
+    if (typeof window === 'undefined') return null;
     try {
-      const savedUser = localStorage.getItem('user');
-      if (savedUser) {
-        setUser(JSON.parse(savedUser));
-      }
-      // 更新额度显示
-      const credits = getRemainingCredits(savedUser ? JSON.parse(savedUser) : null);
-      setRemainingCredits(credits);
-    } catch (e) {
-      console.error('Error loading user:', e);
+      return window.localStorage.getItem(key);
+    } catch {
+      return null;
     }
   }, []);
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const setStorageItem = useCallback((key: string, value: string): boolean => {
+    if (typeof window === 'undefined') return false;
+    try {
+      window.localStorage.setItem(key, value);
+      return true;
+    } catch {
+      return false;
+    }
+  }, []);
+
+  // 客户端初始化
+  useEffect(() => {
+    setMounted(true);
+    const saved = getStorageItem('anonymousCreditsUsed');
+    const used = saved ? parseInt(saved, 10) || 0 : 0;
+    setRemainingCredits(Math.max(0, ANONYMOUS_LIMIT - used));
+  }, [getStorageItem]);
+
+  const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (!hasEnoughCredits(user)) {
+    if (remainingCredits <= 0) {
       setError('额度已用完，请升级套餐');
       return;
     }
@@ -61,14 +68,21 @@ export default function Home() {
 
     const reader = new FileReader();
     reader.onload = (event) => {
-      setOriginalImage(event.target?.result as string);
+      const result = event.target?.result;
+      if (typeof result === 'string') {
+        setOriginalImage(result);
+      }
+    };
+    reader.onerror = () => {
+      setError('读取图片失败，请重试');
     };
     reader.readAsDataURL(file);
 
+    // 处理图片
     processImage(file);
-  };
+  }, [remainingCredits]);
 
-  const processImage = async (file: File) => {
+  const processImage = useCallback(async (file: File) => {
     setIsProcessing(true);
     setError(null);
 
@@ -81,60 +95,91 @@ export default function Home() {
         body: formData,
       });
 
-      const data = await response.json();
+      let data;
+      try {
+        data = await response.json();
+      } catch {
+        throw new Error('服务器返回格式错误');
+      }
 
       if (!response.ok) {
-        throw new Error(data.error || '处理失败');
+        throw new Error(data?.error || `处理失败 (${response.status})`);
+      }
+
+      if (!data.image) {
+        throw new Error('处理结果为空');
       }
 
       setProcessedImage(data.image);
       
       // 扣减额度
-      if (!user) {
-        const anonymousUsed = parseInt(localStorage.getItem('anonymousCreditsUsed') || '0');
-        localStorage.setItem('anonymousCreditsUsed', String(anonymousUsed + 1));
-      } else {
-        const updatedUser = { ...user, creditsUsed: user.creditsUsed + 1 };
-        localStorage.setItem('user', JSON.stringify(updatedUser));
-        setUser(updatedUser);
-      }
-      setRemainingCredits(getRemainingCredits(user));
+      const anonymousUsed = parseInt(getStorageItem('anonymousCreditsUsed') || '0') || 0;
+      setStorageItem('anonymousCreditsUsed', String(anonymousUsed + 1));
+      setRemainingCredits(Math.max(0, ANONYMOUS_LIMIT - anonymousUsed - 1));
     } catch (err) {
-      setError(err instanceof Error ? err.message : '处理失败，请重试');
+      const message = err instanceof Error ? err.message : '处理失败，请重试';
+      setError(message);
+      console.error('Process error:', err);
     } finally {
       setIsProcessing(false);
     }
-  };
+  }, [getStorageItem, setStorageItem]);
 
-  const handleDrop = (e: React.DragEvent) => {
+  const handleDrop = useCallback((e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
-    const file = e.dataTransfer.files[0];
-    if (file) {
-      const input = document.getElementById('file-input') as HTMLInputElement;
-      const dataTransfer = new DataTransfer();
-      dataTransfer.items.add(file);
-      input.files = dataTransfer.files;
-      handleFileChange({ target: input } as React.ChangeEvent<HTMLInputElement>);
+    e.stopPropagation();
+    const file = e.dataTransfer.files?.[0];
+    if (file && file.type.startsWith('image/')) {
+      const mockEvent = { target: { files: [file] } } as unknown as React.ChangeEvent<HTMLInputElement>;
+      handleFileChange(mockEvent);
     }
-  };
+  }, [handleFileChange]);
 
-  const handleDownload = () => {
-    if (!processedImage) return;
-    const link = document.createElement('a');
-    link.href = processedImage;
-    link.download = `removed-bg-${fileName || 'image'}.png`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
+  const handleDragOver = useCallback((e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+  }, []);
 
-  const getPlanName = () => {
-    if (!user) return '访客';
-    const planKey = user.plan.toUpperCase() as keyof typeof PLANS;
-    return PLANS[planKey]?.name || 'Free';
-  };
+  const handleDownload = useCallback(() => {
+    if (!processedImage || typeof window === 'undefined') return;
+    try {
+      const link = document.createElement('a');
+      link.href = processedImage;
+      link.download = `removed-bg-${fileName || 'image'}.png`;
+      link.style.display = 'none';
+      document.body.appendChild(link);
+      link.click();
+      setTimeout(() => {
+        document.body.removeChild(link);
+      }, 100);
+    } catch (err) {
+      console.error('Download error:', err);
+      setError('下载失败，请右键保存图片');
+    }
+  }, [processedImage, fileName]);
 
-  if (!isClient) {
+  const handleReset = useCallback(() => {
+    setOriginalImage(null);
+    setProcessedImage(null);
+    setError(null);
+    setFileName('');
+  }, []);
+
+  const handleUploadClick = useCallback(() => {
+    if (remainingCredits === 0) {
+      if (typeof window !== 'undefined') {
+        window.location.href = '/pricing';
+      }
+    } else {
+      const input = document.getElementById('file-input');
+      if (input) {
+        input.click();
+      }
+    }
+  }, [remainingCredits]);
+
+  // 未挂载时显示加载状态
+  if (!mounted) {
     return (
       <main className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 py-12 px-4">
         <div className="max-w-6xl mx-auto flex items-center justify-center min-h-[50vh]">
@@ -158,7 +203,7 @@ export default function Home() {
             <div className="flex items-center gap-4">
               <div className="bg-white rounded-lg px-4 py-2 shadow-md text-sm">
                 <span className="text-gray-600">套餐：</span>
-                <span className="font-semibold text-indigo-600">{getPlanName()}</span>
+                <span className="font-semibold text-indigo-600">访客</span>
               </div>
               <div className="bg-white rounded-lg px-4 py-2 shadow-md text-sm">
                 <span className="text-gray-600">剩余额度：</span>
@@ -168,15 +213,13 @@ export default function Home() {
               </div>
             </div>
 
-            {/* Auth Buttons */}
-            <div className="flex items-center gap-3">
-              <Link 
-                href="/pricing"
-                className="px-4 py-2 bg-indigo-100 text-indigo-700 rounded-lg hover:bg-indigo-200 transition-colors text-sm font-medium"
-              >
-                升级套餐
-              </Link>
-            </div>
+            {/* Upgrade Button */}
+            <Link 
+              href="/pricing"
+              className="px-4 py-2 bg-indigo-100 text-indigo-700 rounded-lg hover:bg-indigo-200 transition-colors text-sm font-medium"
+            >
+              升级套餐
+            </Link>
           </div>
 
           <h1 className="text-4xl md:text-5xl font-bold text-gray-900 mb-4">
@@ -191,7 +234,7 @@ export default function Home() {
         {!originalImage && (
           <div
             onDrop={handleDrop}
-            onDragOver={(e) => e.preventDefault()}
+            onDragOver={handleDragOver}
             className={`
               border-4 border-dashed rounded-3xl p-16 text-center bg-white shadow-lg transition-colors cursor-pointer
               ${remainingCredits === 0 
@@ -199,13 +242,7 @@ export default function Home() {
                 : 'border-indigo-300 hover:border-indigo-500'
               }
             `}
-            onClick={() => {
-              if (remainingCredits === 0) {
-                window.location.href = '/pricing';
-              } else {
-                document.getElementById('file-input')?.click();
-              }
-            }}
+            onClick={handleUploadClick}
           >
             <div className="text-6xl mb-4">
               {remainingCredits === 0 ? '🔒' : '📤'}
@@ -222,7 +259,7 @@ export default function Home() {
             <input
               id="file-input"
               type="file"
-              accept="image/*"
+              accept="image/jpeg,image/png,image/jpg,image/webp"
               onChange={handleFileChange}
               className="hidden"
               disabled={remainingCredits === 0}
@@ -265,6 +302,7 @@ export default function Home() {
                   原图
                 </h3>
                 <div className="relative aspect-square bg-gray-100 rounded-lg overflow-hidden">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
                     src={originalImage}
                     alt="Original"
@@ -279,6 +317,7 @@ export default function Home() {
                   去背景后
                 </h3>
                 <div className="relative aspect-square bg-gray-100 rounded-lg overflow-hidden">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
                     src={processedImage}
                     alt="Processed"
@@ -301,12 +340,7 @@ export default function Home() {
             {/* Reset Button */}
             <div className="mt-4 text-center">
               <button
-                onClick={() => {
-                  setOriginalImage(null);
-                  setProcessedImage(null);
-                  setError(null);
-                  setFileName('');
-                }}
+                onClick={handleReset}
                 className="text-gray-500 hover:text-gray-700 underline"
               >
                 处理新图片
