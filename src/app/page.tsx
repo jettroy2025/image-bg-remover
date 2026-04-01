@@ -159,19 +159,37 @@ export default function Home() {
 
   const handleDownload = useCallback(() => {
     if (!processedImage || typeof window === 'undefined') return;
+    
     try {
+      // 方法1: 使用 Blob 和 URL.createObjectURL
+      const byteString = atob(processedImage.split(',')[1]);
+      const mimeString = processedImage.split(',')[0].split(':')[1].split(';')[0];
+      const ab = new ArrayBuffer(byteString.length);
+      const ia = new Uint8Array(ab);
+      
+      for (let i = 0; i < byteString.length; i++) {
+        ia[i] = byteString.charCodeAt(i);
+      }
+      
+      const blob = new Blob([ab], { type: mimeString });
+      const url = URL.createObjectURL(blob);
+      
       const link = document.createElement('a');
-      link.href = processedImage;
+      link.href = url;
       link.download = `removed-bg-${fileName || 'image'}.png`;
-      link.style.display = 'none';
       document.body.appendChild(link);
       link.click();
+      
+      // 清理
       setTimeout(() => {
         document.body.removeChild(link);
+        URL.revokeObjectURL(url);
       }, 100);
     } catch (err) {
       console.error('Download error:', err);
-      setError('下载失败，请右键保存图片');
+      // 方法2: 如果 Blob 方法失败，直接打开图片让用户手动保存
+      window.open(processedImage, '_blank');
+      setError('自动下载失败，请在新标签页中右键保存图片');
     }
   }, [processedImage, fileName]);
 
