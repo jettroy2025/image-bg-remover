@@ -1,7 +1,33 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import Link from 'next/link';
+
+// 用户类型定义
+interface User {
+  id: string;
+  name: string;
+  email: string;
+  image?: string;
+}
+
+// 全局 window 类型扩展
+declare global {
+  interface Window {
+    google?: {
+      accounts: {
+        id: {
+          initialize: (config: { client_id: string; callback: (response: GoogleCredentialResponse) => void }) => void;
+          renderButton: (element: HTMLElement | null, options: { theme: string; size: string }) => void;
+        };
+      };
+    };
+  }
+
+  interface GoogleCredentialResponse {
+    credential: string;
+  }
+}
 
 // 简化的额度管理
 const ANONYMOUS_LIMIT = 3;
@@ -12,54 +38,103 @@ export default function Home() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [fileName, setFileName] = useState<string>('');
+  const [user, setUser] = useState<User | null>(null);
   const [remainingCredits, setRemainingCredits] = useState(ANONYMOUS_LIMIT);
   const [mounted, setMounted] = useState(false);
 
-  // 从服务器获取额度信息
-  const fetchCredits = useCallback(async () => {
+  // 处理 Google 登录回调
+  const handleGoogleCallback = useCallback((response: GoogleCredentialResponse) => {
     try {
-      const response = await fetch('/api/remove-bg', {
-        method: 'GET',
-        cache: 'no-store',
-      });
-      if (response.ok) {
-        const data = await response.json();
-        setRemainingCredits(data.remaining);
-      }
-    } catch {
-      // 如果 API 失败，使用本地默认值
-      console.log('Failed to fetch credits');
+      const token = response.credential;
+      const payload = JSON.parse(atob(token.split('.')[1]));
+      
+      const userData: User = {
+        id: payload.sub,
+        name: payload.name,
+        email: payload.email,
+        image: payload.picture,
+      };
+      
+      setUser(userData);
+      localStorage.setItem('user', JSON.stringify(userData));
+      localStorage.setItem('token', token);
+    } catch (err) {
+      console.error('Google login error:', err);
+      setError('登录失败，请重试');
     }
   }, []);
 
-  // 客户端初始化
+  // 退出登录
+  const handleLogout = useCallback(() => {
+    setUser(null);
+    localStorage.removeItem('user');
+    localStorage.removeItem('token');
+    window.location.reload();
+  }, []);
+
+  // 客户端初始化 - 解决 hydration 问题
   useEffect(() => {
     setMounted(true);
-    fetchCredits();
-  }, [fetchCredits]);
+    
+    // 加载本地存储的用户和额度
+    try {
+      const savedUser = localStorage.getItem('user');
+      const savedCredits = localStorage.getItem('anonymousCreditsUsed');
+      
+      if (savedUser) {
+        setUser(JSON.parse(savedUser));
+      }
+      
+      const used = savedCredits ? parseInt(savedCredits, 10) || 0 : 0;
+      setRemainingCredits(Math.max(0, ANONYMOUS_LIMIT - used));
+    } catch {
+      console.log('localStorage not available');
+    }
+  }, []);
 
-  const handleFileChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+  // 加载 Google Identity Services - 只在客户端且未登录时
+  useEffect(() => {
+    if (!mounted || user) return;
+
+    // 检查脚本是否已加载
+    if (document.getElementById('google-gsi-script')) return;
+
+    const script = document.createElement('script');
+    script.id = 'google-gsi-script';
+    script.src = 'https://accounts.google.com/gsi/client';
+    script.async = true;
+    script.defer = true;
+    
+    script.onload = () => {
+      if (window.google) {
+        window.google.accounts.id.initialize({
+          client_id: '1060110837421-360r8rj0lmu5c5vo9jsfu8bs5i2njmv6.apps.googleusercontent.com',
+          callback: handleGoogleCallback,
+        });
+        
+        const buttonElement = document.getElementById('google-signin-button');
+        if (buttonElement) {
+          window.google.accounts.id.renderButton(buttonElement, {
+            theme: 'outline',
+            size: 'large',
+          });
+        }
+      }
+    };
+    
+    document.body.appendChild(script);
+
+    return () => {
+      const existingScript = document.getElementById('google-gsi-script');
+      if (existingScript) {
+        document.body.removeChild(existingScript);
+      }
+    };
+  }, [mounted, user, handleGoogleCallback]);
+
+  const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
-    // 先检查服务器额度
-    try {
-      const checkResponse = await fetch('/api/remove-bg', {
-        method: 'GET',
-        cache: 'no-store',
-      });
-      if (checkResponse.ok) {
-        const checkData = await checkResponse.json();
-        if (!checkData.allowed) {
-          setError('免费额度已用完，请升级套餐');
-          setRemainingCredits(0);
-          return;
-        }
-        setRemainingCredits(checkData.remaining);
-      }
-    } catch {
-      console.log('Failed to check credits');
-    }
 
     if (remainingCredits <= 0) {
       setError('额度已用完，请升级套餐');
@@ -92,7 +167,6 @@ export default function Home() {
     };
     reader.readAsDataURL(file);
 
-    // 处理图片
     processImage(file);
   }, [remainingCredits]);
 
@@ -117,9 +191,6 @@ export default function Home() {
       }
 
       if (!response.ok) {
-        if (response.status === 403 && data.code === 'QUOTA_EXCEEDED') {
-          setRemainingCredits(0);
-        }
         throw new Error(data?.error || `处理失败 (${response.status})`);
       }
 
@@ -129,9 +200,13 @@ export default function Home() {
 
       setProcessedImage(data.image);
       
-      // 更新额度显示
-      if (typeof data.remaining === 'number') {
-        setRemainingCredits(data.remaining);
+      // 扣减额度
+      try {
+        const anonymousUsed = parseInt(localStorage.getItem('anonymousCreditsUsed') || '0') || 0;
+        localStorage.setItem('anonymousCreditsUsed', String(anonymousUsed + 1));
+        setRemainingCredits(Math.max(0, ANONYMOUS_LIMIT - anonymousUsed - 1));
+      } catch {
+        console.log('localStorage not available');
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : '处理失败，请重试';
@@ -161,7 +236,6 @@ export default function Home() {
     if (!processedImage || typeof window === 'undefined') return;
     
     try {
-      // 方法1: 使用 Blob 和 URL.createObjectURL
       const byteString = atob(processedImage.split(',')[1]);
       const mimeString = processedImage.split(',')[0].split(':')[1].split(';')[0];
       const ab = new ArrayBuffer(byteString.length);
@@ -180,14 +254,12 @@ export default function Home() {
       document.body.appendChild(link);
       link.click();
       
-      // 清理
       setTimeout(() => {
         document.body.removeChild(link);
         URL.revokeObjectURL(url);
       }, 100);
     } catch (err) {
       console.error('Download error:', err);
-      // 方法2: 如果 Blob 方法失败，直接打开图片让用户手动保存
       window.open(processedImage, '_blank');
       setError('自动下载失败，请在新标签页中右键保存图片');
     }
@@ -213,7 +285,7 @@ export default function Home() {
     }
   }, [remainingCredits]);
 
-  // 未挂载时显示加载状态
+  // 未挂载时显示加载状态 - 防止 hydration 不匹配
   if (!mounted) {
     return (
       <main className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 py-12 px-4">
@@ -238,7 +310,9 @@ export default function Home() {
             <div className="flex items-center gap-4">
               <div className="bg-white rounded-lg px-4 py-2 shadow-md text-sm">
                 <span className="text-gray-600">套餐：</span>
-                <span className="font-semibold text-indigo-600">访客</span>
+                <span className="font-semibold text-indigo-600">
+                  {user ? 'Free' : '访客'}
+                </span>
               </div>
               <div className="bg-white rounded-lg px-4 py-2 shadow-md text-sm">
                 <span className="text-gray-600">剩余额度：</span>
@@ -248,13 +322,35 @@ export default function Home() {
               </div>
             </div>
 
-            {/* Upgrade Button */}
-            <Link 
-              href="/pricing"
-              className="px-4 py-2 bg-indigo-100 text-indigo-700 rounded-lg hover:bg-indigo-200 transition-colors text-sm font-medium"
-            >
-              升级套餐
-            </Link>
+            {/* Auth Buttons */}
+            <div className="flex items-center gap-3">
+              {user ? (
+                <div className="flex items-center gap-3">
+                  {user.image && (
+                    <img 
+                      src={user.image} 
+                      alt={user.name} 
+                      className="w-8 h-8 rounded-full"
+                    />
+                  )}
+                  <span className="text-sm text-gray-700 hidden sm:inline">{user.name}</span>
+                  <button
+                    onClick={handleLogout}
+                    className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors text-sm"
+                  >
+                    退出
+                  </button>
+                </div>
+              ) : (
+                <div id="google-signin-button"></div>
+              )}
+              <Link 
+                href="/pricing"
+                className="px-4 py-2 bg-indigo-100 text-indigo-700 rounded-lg hover:bg-indigo-200 transition-colors text-sm font-medium"
+              >
+                升级套餐
+              </Link>
+            </div>
           </div>
 
           <h1 className="text-4xl md:text-5xl font-bold text-gray-900 mb-4">
