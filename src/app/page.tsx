@@ -32,6 +32,13 @@ declare global {
 // 简化的额度管理
 const ANONYMOUS_LIMIT = 3;
 
+// 套餐配置
+const PLANS: Record<string, { credits: number; name: string }> = {
+  starter: { credits: 25, name: 'Starter' },
+  pro: { credits: 50, name: 'Pro' },
+  business: { credits: 125, name: 'Business' },
+};
+
 export default function Home() {
   const [originalImage, setOriginalImage] = useState<string | null>(null);
   const [processedImage, setProcessedImage] = useState<string | null>(null);
@@ -80,13 +87,25 @@ export default function Home() {
     try {
       const savedUser = localStorage.getItem('user');
       const savedCredits = localStorage.getItem('anonymousCreditsUsed');
+      const savedPlan = localStorage.getItem('userPlan');
       
       if (savedUser) {
         setUser(JSON.parse(savedUser));
       }
       
-      const used = savedCredits ? parseInt(savedCredits, 10) || 0 : 0;
-      setRemainingCredits(Math.max(0, ANONYMOUS_LIMIT - used));
+      // 检查是否有付费套餐
+      if (savedPlan) {
+        const plan = JSON.parse(savedPlan);
+        const planConfig = PLANS[plan.planId];
+        if (planConfig) {
+          // 付费用户显示套餐额度
+          setRemainingCredits(planConfig.credits);
+        }
+      } else {
+        // 免费用户显示剩余额度
+        const used = savedCredits ? parseInt(savedCredits, 10) || 0 : 0;
+        setRemainingCredits(Math.max(0, ANONYMOUS_LIMIT - used));
+      }
     } catch {
       console.log('localStorage not available');
     }
@@ -285,7 +304,19 @@ export default function Home() {
     }
   }, [remainingCredits]);
 
-  // 未挂载时显示加载状态 - 防止 hydration 不匹配
+  // 获取套餐名称
+  const getPlanName = () => {
+    try {
+      const savedPlan = localStorage.getItem('userPlan');
+      if (savedPlan) {
+        const plan = JSON.parse(savedPlan);
+        return PLANS[plan.planId]?.name || '付费套餐';
+      }
+    } catch {
+      console.log('localStorage not available');
+    }
+    return user ? 'Free' : '访客';
+  };
   if (!mounted) {
     return (
       <main className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 py-12 px-4">
@@ -311,7 +342,7 @@ export default function Home() {
               <div className="bg-white rounded-lg px-4 py-2 shadow-md text-sm">
                 <span className="text-gray-600">套餐：</span>
                 <span className="font-semibold text-indigo-600">
-                  {user ? 'Free' : '访客'}
+                  {getPlanName()}
                 </span>
               </div>
               <div className="bg-white rounded-lg px-4 py-2 shadow-md text-sm">
