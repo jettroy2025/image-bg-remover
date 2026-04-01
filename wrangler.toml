@@ -1,0 +1,13 @@
+name = "image-bg-remover"
+compatibility_date = "2024-01-01"
+
+[build]
+command = "npm run build"
+
+[site]
+bucket = "./dist"
+
+[[env.production.vars]]
+REMOVE_BG_API_KEY = ""
+PAYPAL_CLIENT_ID = "AQPiQrcz2gqE9EU70X1wL4-pJ3G7B-VhAjOjDj2Ray1--_ahGOfmLWQ93f8XIzGHn1e7jpZ7N33Z4r5g"
+PAYPAL_SECRET = "EAdwS4p-C6iVI7N7cp7mn0WxLv2rvNP-JLOCb-bgDrqx80YtEfy5Wpx3DpsVBhthHoyYOLRMKx2osT4C"
