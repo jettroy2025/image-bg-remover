@@ -15,37 +15,51 @@ export default function Home() {
   const [remainingCredits, setRemainingCredits] = useState(ANONYMOUS_LIMIT);
   const [mounted, setMounted] = useState(false);
 
-  // 安全的 localStorage 访问
-  const getStorageItem = useCallback((key: string): string | null => {
-    if (typeof window === 'undefined') return null;
+  // 从服务器获取额度信息
+  const fetchCredits = useCallback(async () => {
     try {
-      return window.localStorage.getItem(key);
+      const response = await fetch('/api/remove-bg', {
+        method: 'GET',
+        cache: 'no-store',
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setRemainingCredits(data.remaining);
+      }
     } catch {
-      return null;
-    }
-  }, []);
-
-  const setStorageItem = useCallback((key: string, value: string): boolean => {
-    if (typeof window === 'undefined') return false;
-    try {
-      window.localStorage.setItem(key, value);
-      return true;
-    } catch {
-      return false;
+      // 如果 API 失败，使用本地默认值
+      console.log('Failed to fetch credits');
     }
   }, []);
 
   // 客户端初始化
   useEffect(() => {
     setMounted(true);
-    const saved = getStorageItem('anonymousCreditsUsed');
-    const used = saved ? parseInt(saved, 10) || 0 : 0;
-    setRemainingCredits(Math.max(0, ANONYMOUS_LIMIT - used));
-  }, [getStorageItem]);
+    fetchCredits();
+  }, [fetchCredits]);
 
-  const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+
+    // 先检查服务器额度
+    try {
+      const checkResponse = await fetch('/api/remove-bg', {
+        method: 'GET',
+        cache: 'no-store',
+      });
+      if (checkResponse.ok) {
+        const checkData = await checkResponse.json();
+        if (!checkData.allowed) {
+          setError('免费额度已用完，请升级套餐');
+          setRemainingCredits(0);
+          return;
+        }
+        setRemainingCredits(checkData.remaining);
+      }
+    } catch {
+      console.log('Failed to check credits');
+    }
 
     if (remainingCredits <= 0) {
       setError('额度已用完，请升级套餐');
@@ -103,6 +117,9 @@ export default function Home() {
       }
 
       if (!response.ok) {
+        if (response.status === 403 && data.code === 'QUOTA_EXCEEDED') {
+          setRemainingCredits(0);
+        }
         throw new Error(data?.error || `处理失败 (${response.status})`);
       }
 
@@ -112,10 +129,10 @@ export default function Home() {
 
       setProcessedImage(data.image);
       
-      // 扣减额度
-      const anonymousUsed = parseInt(getStorageItem('anonymousCreditsUsed') || '0') || 0;
-      setStorageItem('anonymousCreditsUsed', String(anonymousUsed + 1));
-      setRemainingCredits(Math.max(0, ANONYMOUS_LIMIT - anonymousUsed - 1));
+      // 更新额度显示
+      if (typeof data.remaining === 'number') {
+        setRemainingCredits(data.remaining);
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : '处理失败，请重试';
       setError(message);
@@ -123,7 +140,7 @@ export default function Home() {
     } finally {
       setIsProcessing(false);
     }
-  }, [getStorageItem, setStorageItem]);
+  }, []);
 
   const handleDrop = useCallback((e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
@@ -271,7 +288,7 @@ export default function Home() {
         {error && (
           <div className="mt-6 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-center">
             {error}
-            {error.includes('额度') && (
+            {(error.includes('额度') || error.includes('用完')) && (
               <div className="mt-2">
                 <Link 
                   href="/pricing"
