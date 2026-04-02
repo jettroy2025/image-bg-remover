@@ -3,8 +3,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 
-// PayPal Client ID (沙盒环境)
-const PAYPAL_CLIENT_ID = 'AQPiQrcz2gqE9EU70X1wL4-pJ3G7B-VhAjOjDj2Ray1--_ahGOfmLWQ93f8XIzGHn1e7jpZ7N33Z4r5g';
+// PayPal Client ID (生产环境)
+const PAYPAL_CLIENT_ID = 'AcpK9pqxYiJRLbUr3PHxzGm_1cLyBNqzu6JYAdKxRzR0R6_xLcCV7JyE8z35NZhLNIBpMhv477uNAy9V';
 
 // 套餐配置
 const PLANS = [
