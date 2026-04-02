@@ -2,9 +2,10 @@
 export async function onRequestPost(context) {
   const { request, env } = context;
   
-  const PAYPAL_CLIENT_ID = env.PAYPAL_CLIENT_ID || 'AQPiQrcz2gqE9EU70X1wL4-pJ3G7B-VhAjOjDj2Ray1--_ahGOfmLWQ93f8XIzGHn1e7jpZ7N33Z4r5g';
-  const PAYPAL_SECRET = env.PAYPAL_SECRET || 'EAdwS4p-C6iVI7N7cp7mn0WxLv2rvNP-JLOCb-bgDrqx80YtEfy5Wpx3DpsVBhthHoyYOLRMKx2osT4C';
-  const PAYPAL_API = 'https://api-m.sandbox.paypal.com';
+  // 生产环境 PayPal 配置
+  const PAYPAL_CLIENT_ID = env.PAYPAL_CLIENT_ID || 'AcpK9pqxYiJRLbUr3PHxzGm_1cLyBNqzu6JYAdKxRzR0R6_xLcCV7JyE8z35NZhLNIBpMhv477uNAy9V';
+  const PAYPAL_SECRET = env.PAYPAL_SECRET || 'EM_0fiwPW41J84X1NQXL7jK8JmFwvUjZiM9GQwORNDfom2OjNGSTnFXqvwwxb3717yE59hjLNAjrjiT5';
+  const PAYPAL_API = 'https://api-m.paypal.com'; // 生产环境 API
 
   try {
     const { orderId, planId } = await request.json();
